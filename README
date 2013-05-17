@@ -1,18 +1,9 @@
-What's EpiCode?
+Epiphany Branch to support XML/JSON output?
 
-EpiCode started off as an MVC framework but has evolved into a set of extremely useful tools.  Every tool is completely decoupled so they can be used independently or in conjunction.  Each library in EpiCode is thought out and implemented in an extremely cohesive manner.
+The purpose of this branch is mainly to use Epiphany only as an API.
+This is an exelent and easy way to have a RESTful service up and running in no Time.
 
-Documentation
-* http://wiki.github.com/jmathai/epicode/epicode
+the URL looks nice and clean but it was missing the possibility to output XML (although hardly anyone uses XML these days).
+I also needed a way to use dynamic arguments.
 
-Documentation for the following is coming soon:
-* EpiForm
-* EpiForm
-* EpiDatabase
-* EpiCache
-* EpiCurl
-* EpiOAuth
-* EpiDatabase
-* EpiCache
-* EpiCurl
-* EpiOAuth
+
