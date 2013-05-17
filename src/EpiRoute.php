@@ -16,24 +16,104 @@
  */
 class EpiRoute
 {
+  private static $instance;
   private $routes = array();
   private $regexes= array();
+  private $route = null;
+  const routeKey= '__route__';
+  const httpGet = 'GET';
+  const httpPost= 'POST';
+  const httpPut = 'PUT';
+  const httpDelete = 'DELETE';
+  public $CONFIG =array();
+
 
   /**
-   * addRoute('GET', '/', 'function');
-   * @name  addRoute
+   * get('/', 'function');
+   * @name  get
    * @author  Jaisen Mathai <jaisen@jmathai.com>
    * @param string $route
-   * @param array $routes
-   * @method run
-   * @static method
+   * @param mixed $callback
    */
-  public function addRoute($method, $path, $callback)
+  public function get($route, $callback, $isApi = false)
   {
-    $this->routes[] = array('httpMethod' => $method, 'path' => $path, 'callback' => $callback);
-    $this->regexes[]= "#^{$path}\$#";
+    $this->addRoute($route, $callback, self::httpGet, $isApi);
   }
 
+  /**
+   * post('/', 'function');
+   * @name  post
+   * @author  Jaisen Mathai <jaisen@jmathai.com>
+   * @param string $route
+   * @param mixed $callback
+   */
+  public function post($route, $callback, $isApi = false)
+  {
+    $this->addRoute($route, $callback, self::httpPost, $isApi);
+  }
+
+  /**
+   * put('/', 'function');
+   * @name  put
+   * @author  Sandro Meier <sandro.meier@fidelisfactory.ch>
+   * @param string $route
+   * @param mixed $callback
+   */
+  public function put($route, $callback, $isApi = false)
+  {
+    $this->addRoute($route, $callback, self::httpPut, $isApi);
+  }
+  
+  /**
+   * delete('/', 'function');
+   * @name  delete
+   * @author  Sandro Meier <sandro.meier@fidelisfactory.ch>
+   * @param string $route
+   * @param mixed $callback
+   */
+  public function delete($route, $callback, $isApi = false)
+  {
+    $this->addRoute($route, $callback, self::httpDelete, $isApi);
+  }
+
+  /**
+   * NOT YET IMPLEMENTED
+   * request('/', 'function', array(EpiRoute::httpGet, EpiRoute::httpPost));
+   * @name  request
+   * @author  Jaisen Mathai <jaisen@jmathai.com>
+   * @param string $route
+   * @param mixed $callback
+   */
+  /*public function request($route, $callback, $httpMethods = array(self::httpGet, self::httpPost))
+  {
+  }*/
+
+  /**
+   * load('/path/to/file');
+   * @name  load
+   * @author  Jaisen Mathai <jaisen@jmathai.com>
+   * @param string $file
+   */
+  public function load($file)
+  {
+    $file = Epi::getPath('config') . "/{$file}";
+    if(!file_exists($file))
+    {
+      EpiException::raise(new EpiException("Config file ({$file}) does not exist"));
+      break; // need to simulate same behavior if exceptions are turned off
+    }
+
+    $parsed_array = parse_ini_file($file, true);
+    foreach($parsed_array as $route)
+    {
+      $method = strtolower($route['method']);
+      if(isset($route['class']) && isset($route['function']))
+        $this->$method($route['path'], array($route['class'], $route['function']));
+      elseif(isset($route['function']))
+        $this->$method($route['path'], $route['function']);
+    }
+  }
+  
   /**
    * EpiRoute::run($_GET['__route__'], $_['routes']); 
    * @name  run
@@ -43,28 +123,103 @@ class EpiRoute
    * @method run
    * @static method
    */
-  public function run($key = '__route__')
+  public function run($route = false, $httpMethod = null)
   {
-    $route = isset($_GET[$key]) ? $_GET[$key] : '/';
+    if($route === false) 
+      $route = isset($_GET[self::routeKey]) ? $_GET[self::routeKey] : '/'; 
+    if($httpMethod === null)
+      $httpMethod = $_SERVER['REQUEST_METHOD'];
+    $routeDef = $this->getRoute($route, $httpMethod);
+    $response = call_user_func_array($routeDef['callback'], $routeDef['args']);
+    if(!$routeDef['postprocess'])
+      return $response;
+    else
+    {
+      // Only echo the response if it's not null. 
+      if (!is_null($response))
+      {
+		//check what format is given *robin default = json.
+		if(preg_match("@^(/\w*)\.\bjson@",$route))$format='json';
+		elseif(preg_match("@^(/\w*)\.\bxml@",$route))$format='xml';
+		else $format='json';
+
+//****************************************************************************************************//
+//edit from robin, adding function for xml. accepts a multidemensional array, with appropriate naming.//
+//****************************************************************************************************//
+		switch ($format) {
+			case 'json':
+				 $response = json_encode($response);
+				 if(isset($_GET['callback'])) $response = "{$_GET['callback']}($response)";
+				 echo $response;
+			break;
+			case 'xml':
+				if(!is_null($response['dimension'])){
+					$dimension = $response['dimension'];
+					unset($response['dimension']);
+				}else{
+					$dimension = 1;
+				}
+				if(!is_null($response['container'])){
+					$container = $response['container'];
+					unset($response['container']);
+				}else{
+					$container = "";
+				}
+				echo '<?xml version="1.0" encoding="UTF-8"?>'."\r\n";
+				echo '<XML>'."\r\n";
+				_DepthArrayPrint( (array) $response,$dimension,$container);
+				echo '</XML>'."\r\n";
+			break;
+		}
+      }
+
+    }
+  }
+  /**
+   * EpiRoute::getRoute($route); 
+   * @name  getRoute
+   * @author  Jaisen Mathai <jaisen@jmathai.com>
+   * @param string $route
+   * @method getRoute
+   * @static method
+   */
+  public function getRoute($route = false, $httpMethod = null)
+  {
+    if($route)
+      $this->route = $route;
+    else
+      $this->route = isset($_GET[self::routeKey]) ? $_GET[self::routeKey] : '/';
+
+    if($httpMethod === null)
+      $httpMethod = $_SERVER['REQUEST_METHOD'];
+
     foreach($this->regexes as $ind => $regex)
     {
-      if(preg_match($regex, $route, $arguments))
+      if(preg_match($regex, $this->route, $arguments))
       {
         array_shift($arguments);
         $def = $this->routes[$ind];
-        if(is_array($def['callback']) && method_exists($def['callback'][0], $def['callback'][1]))
+        if($httpMethod != $def['httpMethod'])
         {
-          return call_user_func_array($def['callback'], $arguments);
+          continue;
+        }
+        else if(is_array($def['callback']) && method_exists($def['callback'][0], $def['callback'][1]))
+        {
+          if(Epi::getSetting('debug'))
+            getDebug()->addMessage(__CLASS__, sprintf('Matched %s : %s : %s : %s', $httpMethod, $this->route, json_encode($def['callback']), json_encode($arguments)));
+          return array('callback' => $def['callback'], 'args' => $arguments, 'postprocess' => $def['postprocess']);
         }
         else if(function_exists($def['callback']))
         {
-          return call_user_func_array($def['callback'], $arguments);
+          if(Epi::getSetting('debug'))
+            getDebug()->addMessage(__CLASS__, sprintf('Matched %s : %s : %s : %s', $httpMethod, $this->route, json_encode($def['callback']), json_encode($arguments)));
+          return array('callback' => $def['callback'], 'args' => $arguments, 'postprocess' => $def['postprocess']);
         }
 
-        throw new EpiException('Could not call ' . json_encode($def) . " for route {$regex}", EpiException::EPI_EXCEPTION_METHOD);
+        EpiException::raise(new EpiException('Could not call ' . json_encode($def) . " for route {$regex}"));
       }
     }
-    throw new EpiException("Could not find route {$route} from {$_SERVER['REQUEST_URI']}", EpiException::EPI_EXCEPTION_ROUTE);
+    EpiException::raise(new EpiException("Could not find route {$this->route} from {$_SERVER['REQUEST_URI']}"));
   }
 
   /**
@@ -75,18 +230,99 @@ class EpiRoute
    * @method redirect
    * @static method
    */
-  public function redirect($url, $code = null)
+  public function redirect($url, $code = null, $offDomain = false)
   {
-    if($url != '')
+    $continue = !empty($url);
+    if($offDomain === false && preg_match('#^https?://#', $url))
+      $continue = false;
+
+    if($continue)
     {
       if($code != null && (int)$code == $code)
         header("Status: {$code}");
       header("Location: {$url}");
       die();
     }
-    else
-    {
-      throw new EpiException(EpiException::EPI_EXCEPTION_REDIRECT, "Redirect to {$url} failed");
-    }
+    EpiException::raise(new EpiException("Redirect to {$url} failed"));
+  }
+
+  public function route()
+  {
+    return $this->route;
+  }
+
+  /*
+   * EpiRoute::getInstance
+   */
+  public static function getInstance()
+  {
+    if(self::$instance)
+      return self::$instance;
+
+    self::$instance = new EpiRoute;
+    return self::$instance;
+  }
+
+  /**
+   * addRoute('/', 'function', 'GET');
+   * @name  addRoute
+   * @author  Jaisen Mathai <jaisen@jmathai.com>
+   * @param string $route
+   * @param mixed $callback
+   * @param mixed $method
+   * @param string $callback
+   */
+  private function addRoute($route, $callback, $method, $postprocess = false)
+  {
+    $this->routes[] = array('httpMethod' => $method, 'path' => $route, 'callback' => $callback, 'postprocess' => $postprocess);
+    $this->regexes[]= "#^{$route}\$#";
+    if(Epi::getSetting('debug'))
+      getDebug()->addMessage(__CLASS__, sprintf('Found %s : %s : %s', $method, $route, json_encode($callback)));
   }
 }
+
+function getRoute()
+{
+  return EpiRoute::getInstance();
+}
+
+function _DepthArrayPrint($Array,$depth,$container=null)
+{
+	if (strlen($container) > 0)
+	{
+		$j = 0;
+		while ($j < ($depth-1)) { echo "\t"; $j++; }
+		if (is_int($container)) { $container = "item"; }
+		echo '<'.(string)$container.'>'."\r\n";
+	}
+
+	$i = 0;
+	$keys = array_keys($Array);
+	while ($i < count($Array))
+	{
+		if (is_array($Array[$keys[$i]]))
+		{
+			_DepthArrayPrint($Array[$keys[$i]],($depth+1),$keys[$i]);
+		}
+		else
+		{
+			$j = 0;
+			while ($j < $depth) { echo "\t"; $j++; }
+			if (strlen($keys[$i]) > 0)
+			{
+				if (is_int($keys[$i])) { $this_key = $container; } else { $this_key = $keys[$i];} 
+				print "<".(string)$this_key.">".(string)$Array[$keys[$i]]."</".$this_key.">"."\r\n";
+			}
+		}
+		$i++;
+	}
+
+	if (strlen($container) > 0)
+	{
+		$j = 0;
+		while ($j < ($depth-1)) { echo "\t"; $j++; }
+		if (is_int($container)) { $container = "item"; }
+		echo '</'.(string)$container.'>'."\r\n";
+	}
+}
+
